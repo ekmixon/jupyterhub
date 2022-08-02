@@ -113,7 +113,7 @@ async def test_external_proxy(request):
 
     routes = await app.proxy.get_all_routes()
 
-    assert list(routes.keys()) == []
+    assert not list(routes.keys())
 
     # poke the server to update the proxy
     r = await api_request(app, 'proxy', method='post', bypass_proxy=True)
@@ -170,7 +170,7 @@ async def test_external_proxy(request):
 async def test_check_routes(app, username, disable_check_routes):
     proxy = app.proxy
     test_user = add_user(app.db, app, name=username)
-    r = await api_request(app, 'users/%s/server' % username, method='post')
+    r = await api_request(app, f'users/{username}/server', method='post')
     r.raise_for_status()
 
     # check a valid route exists for user
@@ -228,7 +228,7 @@ async def test_extra_routes(app):
 async def test_add_get_delete(app, routespec, disable_check_routes):
     arg = routespec
     if not routespec.endswith('/'):
-        routespec = routespec + '/'
+        routespec = f'{routespec}/'
 
     # host-routes when not host-routing raises an error
     # and vice versa

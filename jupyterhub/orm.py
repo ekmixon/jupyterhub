@@ -192,12 +192,7 @@ class Role(Base):
     groups = relationship('Group', secondary='group_role_map', backref='roles')
 
     def __repr__(self):
-        return "<{} {} ({}) - scopes: {}>".format(
-            self.__class__.__name__,
-            self.name,
-            self.description,
-            self.scopes,
-        )
+        return f"<{self.__class__.__name__} {self.name} ({self.description}) - scopes: {self.scopes}>"
 
     @classmethod
     def find(cls, db, name):
@@ -448,13 +443,12 @@ class Expiring:
 
         or None
         """
-        if self.expires_at:
-            delta = self.expires_at - self.now()
-            if isinstance(delta, timedelta):
-                delta = delta.total_seconds()
-            return delta
-        else:
+        if not self.expires_at:
             return None
+        delta = self.expires_at - self.now()
+        if isinstance(delta, timedelta):
+            delta = delta.total_seconds()
+        return delta
 
     @classmethod
     def purge_expired(cls, db):
@@ -519,9 +513,8 @@ class Hashed(Expiring):
                 "Tokens must be at least %i characters, got %r"
                 % (cls.min_length, token)
             )
-        found = cls.find(db, token)
-        if found:
-            raise ValueError("Collision on token: %s..." % token[: cls.prefix_length])
+        if found := cls.find(db, token):
+            raise ValueError(f"Collision on token: {token[: cls.prefix_length]}...")
 
     @classmethod
     def find_prefix(cls, db, token):
@@ -540,8 +533,9 @@ class Hashed(Expiring):
             bindparam('prefix', prefix).startswith(cls.prefix)
         )
         prefix_match = prefix_match.filter(
-            or_(cls.expires_at == None, cls.expires_at >= cls.now())
+            or_(cls.expires_at is None, cls.expires_at >= cls.now())
         )
+
         return prefix_match
 
     @classmethod
@@ -953,7 +947,6 @@ def check_db_revision(engine):
     ).first()[0]
     if alembic_revision == head:
         app_log.debug("database schema version found: %s", alembic_revision)
-        pass
     else:
         raise DatabaseSchemaMismatch(
             "Found database schema version {found} != {head}. "
@@ -975,13 +968,10 @@ def mysql_large_prefix_check(engine):
             'variable_name like "innodb_file_format";'
         ).fetchall()
     )
-    if (
+    return (
         variables.get('innodb_file_format', 'Barracuda') == 'Barracuda'
         and variables.get('innodb_large_prefix', 'ON') == 'ON'
-    ):
-        return True
-    else:
-        return False
+    )
 
 
 def add_row_format(base):
@@ -1021,12 +1011,7 @@ def new_session_factory(
 
     Base.metadata.create_all(engine)
 
-    # We set expire_on_commit=False, since we don't actually need
-    # SQLAlchemy to expire objects after committing - we don't expect
-    # concurrent runs of the hub talking to the same db. Turning
-    # this off gives us a major performance boost
-    session_factory = sessionmaker(bind=engine, expire_on_commit=expire_on_commit)
-    return session_factory
+    return sessionmaker(bind=engine, expire_on_commit=expire_on_commit)
 
 
 def get_class(resource_name):

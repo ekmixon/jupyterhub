@@ -64,10 +64,7 @@ class Server(HasTraits):
         self.ip = urlinfo.hostname or ''
         port = urlinfo.port
         if port is None:
-            if self.proto == 'https':
-                port = 443
-            else:
-                port = 80
+            port = 443 if self.proto == 'https' else 80
         self.port = port
 
     @validate('connect_url')
@@ -106,9 +103,7 @@ class Server(HasTraits):
 
         Defaults to self.port, but can be overridden by setting self.connect_port
         """
-        if self.connect_port:
-            return self.connect_port
-        return self.port
+        return self.connect_port or self.port
 
     @classmethod
     def from_orm(cls, orm_server):
@@ -162,9 +157,7 @@ class Server(HasTraits):
 
     @property
     def url(self):
-        if self.connect_url:
-            return self.connect_url
-        return f"{self.host}{self.base_url}"
+        return self.connect_url or f"{self.host}{self.base_url}"
 
     def __repr__(self):
         return "{name}(url={url}, bind_url={bind})".format(

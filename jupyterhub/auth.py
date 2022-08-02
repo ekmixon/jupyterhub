@@ -169,8 +169,7 @@ class Authenticator(LoggingConfigurable):
 
     @observe('allowed_users')
     def _check_allowed_users(self, change):
-        short_names = [name for name in change['new'] if len(name) <= 1]
-        if short_names:
+        if short_names := [name for name in change['new'] if len(name) <= 1]:
             sorted_names = sorted(short_names)
             single = ''.join(sorted_names)
             string_set_typo = "set('%s')" % single
@@ -241,9 +240,11 @@ class Authenticator(LoggingConfigurable):
         if not username:
             # empty usernames are not allowed
             return False
-        if not self.username_regex:
-            return True
-        return bool(self.username_regex.match(username))
+        return (
+            bool(self.username_regex.match(username))
+            if self.username_regex
+            else True
+        )
 
     username_map = Dict(
         help="""Dictionary mapping authenticator usernames to JupyterHub users.
@@ -349,8 +350,8 @@ class Authenticator(LoggingConfigurable):
 
             # deprecate pre-1.0 method signatures
             signature = inspect.signature(old_method)
-            if 'authentication' not in signature.parameters and not any(
-                param.kind == inspect.Parameter.VAR_KEYWORD
+            if 'authentication' not in signature.parameters and all(
+                param.kind != inspect.Parameter.VAR_KEYWORD
                 for param in signature.parameters.values()
             ):
                 # adapt to pre-1.0 signature for compatibility
@@ -424,10 +425,7 @@ class Authenticator(LoggingConfigurable):
         .. versionchanged:: 1.2
             Renamed check_whitelist to check_allowed
         """
-        if not self.allowed_users:
-            # No allowed set means any name is allowed
-            return True
-        return username in self.allowed_users
+        return username in self.allowed_users if self.allowed_users else True
 
     def check_blocked_users(self, username, authentication=None):
         """Check if a username is blocked to authenticate based on Authenticator.blocked configuration
@@ -445,10 +443,7 @@ class Authenticator(LoggingConfigurable):
         .. versionchanged:: 1.2
             Renamed check_blacklist to check_blocked_users
         """
-        if not self.blocked_users:
-            # No block list means any name is allowed
-            return True
-        return username not in self.blocked_users
+        return username not in self.blocked_users if self.blocked_users else True
 
     async def get_authenticated_user(self, handler, data):
         """Authenticate the user who is attempting to log in
@@ -495,9 +490,7 @@ class Authenticator(LoggingConfigurable):
         )
         allowed_pass = await maybe_future(self.check_allowed(username, authenticated))
 
-        if blocked_pass:
-            pass
-        else:
+        if not blocked_pass:
             self.log.warning("User %r blocked. Stop authentication", username)
             return
 
@@ -620,7 +613,7 @@ class Authenticator(LoggingConfigurable):
             user (User): The User wrapper object
         """
         if not self.validate_username(user.name):
-            raise ValueError("Invalid username: %s" % user.name)
+            raise ValueError(f"Invalid username: {user.name}")
         if self.allowed_users:
             self.allowed_users.add(user.name)
 
@@ -850,7 +843,7 @@ class LocalAuthenticator(Authenticator):
             try:
                 group = self._getgrnam(grnam)
             except KeyError:
-                self.log.error('No such group: [%s]' % grnam)
+                self.log.error(f'No such group: [{grnam}]')
                 continue
             if username in group.gr_mem:
                 return True
@@ -867,12 +860,9 @@ class LocalAuthenticator(Authenticator):
                 await maybe_future(self.add_system_user(user))
             else:
                 raise KeyError(
-                    "User {} does not exist on the system."
-                    " Set LocalAuthenticator.create_system_users=True"
-                    " to automatically create system users from jupyterhub users.".format(
-                        user.name
-                    )
+                    f"User {user.name} does not exist on the system. Set LocalAuthenticator.create_system_users=True to automatically create system users from jupyterhub users."
                 )
+
 
         await maybe_future(super().add_user(user))
 
@@ -923,7 +913,7 @@ class LocalAuthenticator(Authenticator):
             uid = self.uids[name]
             cmd += ['--uid', '%d' % uid]
         except KeyError:
-            self.log.debug("No UID for user %s" % name)
+            self.log.debug(f"No UID for user {name}")
         cmd += [name]
         self.log.info("Creating user: %s", ' '.join(map(pipes.quote, cmd)))
         p = Popen(cmd, stdout=PIPE, stderr=STDOUT)
@@ -1169,9 +1159,7 @@ class DummyAuthenticator(Authenticator):
     async def authenticate(self, handler, data):
         """Checks against a global password if it's been set. If not, allow any user/pass combo"""
         if self.password:
-            if data['password'] == self.password:
-                return data['username']
-            return None
+            return data['username'] if data['password'] == self.password else None
         return data['username']
 
 

@@ -121,7 +121,7 @@ class SpawnHandler(BaseHandler):
 
             user = self.find_user(for_user)
             if user is None:
-                raise web.HTTPError(404, "No such user: %s" % for_user)
+                raise web.HTTPError(404, f"No such user: {for_user}")
 
         if server_name:
             if not self.allow_named_servers:
@@ -134,11 +134,9 @@ class SpawnHandler(BaseHandler):
                 if self.named_server_limit_per_user <= len(named_spawners):
                     raise web.HTTPError(
                         400,
-                        "User {} already has the maximum of {} named servers."
-                        "  One must be deleted before a new server can be created".format(
-                            user.name, self.named_server_limit_per_user
-                        ),
+                        f"User {user.name} already has the maximum of {self.named_server_limit_per_user} named servers.  One must be deleted before a new server can be created",
                     )
+
 
         if not self.allow_named_servers and user.running:
             url = self.get_next_url(user, default=user.server_url(server_name))
@@ -175,14 +173,15 @@ class SpawnHandler(BaseHandler):
 
         # Try to start server directly when query arguments are passed.
         error_message = ''
-        query_options = {}
-        for key, byte_list in self.request.query_arguments.items():
-            query_options[key] = [bs.decode('utf8') for bs in byte_list]
+        query_options = {
+            key: [bs.decode('utf8') for bs in byte_list]
+            for key, byte_list in self.request.query_arguments.items()
+        }
 
         # 'next' is reserved argument for redirect after spawn
         query_options.pop('next', None)
 
-        if len(query_options) > 0:
+        if query_options:
             try:
                 self.log.debug(
                     "Triggering spawn with supplied query arguments for %s",
@@ -229,22 +228,24 @@ class SpawnHandler(BaseHandler):
                 )
             user = self.find_user(for_user)
             if user is None:
-                raise web.HTTPError(404, "No such user: %s" % for_user)
+                raise web.HTTPError(404, f"No such user: {for_user}")
 
         spawner = user.spawners[server_name]
 
         if spawner.ready:
-            raise web.HTTPError(400, "%s is already running" % (spawner._log_name))
+            raise web.HTTPError(400, f"{spawner._log_name} is already running")
         elif spawner.pending:
             raise web.HTTPError(
                 400, f"{spawner._log_name} is pending {spawner.pending}"
             )
 
-        form_options = {}
-        for key, byte_list in self.request.body_arguments.items():
-            form_options[key] = [bs.decode('utf8') for bs in byte_list]
+        form_options = {
+            key: [bs.decode('utf8') for bs in byte_list]
+            for key, byte_list in self.request.body_arguments.items()
+        }
+
         for key, byte_list in self.request.files.items():
-            form_options["%s_file" % key] = byte_list
+            form_options[f"{key}_file"] = byte_list
         try:
             self.log.debug(
                 "Triggering spawn with supplied form options for %s", spawner._log_name
@@ -310,9 +311,9 @@ class SpawnHandler(BaseHandler):
             exc = f.exception()
             raise web.HTTPError(
                 500,
-                "Error in Authenticator.pre_spawn_start: %s %s"
-                % (type(exc).__name__, str(exc)),
+                f"Error in Authenticator.pre_spawn_start: {type(exc).__name__} {str(exc)}",
             )
+
         return self.redirect(pending_url)
 
 
@@ -343,7 +344,7 @@ class SpawnPendingHandler(BaseHandler):
                 )
             user = self.find_user(for_user)
             if user is None:
-                raise web.HTTPError(404, "No such user: %s" % for_user)
+                raise web.HTTPError(404, f"No such user: {for_user}")
 
         if server_name and server_name not in user.spawners:
             raise web.HTTPError(404, f"{user.name} has no such server {server_name}")
@@ -576,7 +577,7 @@ class ProxyErrorHandler(BaseHandler):
         self.set_header('Content-Type', 'text/html')
         # render the template
         try:
-            html = await self.render_template('%s.html' % status_code, **ns)
+            html = await self.render_template(f'{status_code}.html', **ns)
         except TemplateNotFound:
             self.log.debug("No template for %d", status_code)
             html = await self.render_template('error.html', **ns)

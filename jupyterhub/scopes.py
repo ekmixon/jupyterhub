@@ -159,10 +159,7 @@ def _intersect_expanded_scopes(scopes_a, scopes_b, db=None):
     def groups_for_user(username):
         """Get set of group names for a given username"""
         user = db.query(orm.User).filter_by(name=username).first()
-        if user is None:
-            return empty_set
-        else:
-            return {group.name for group in user.groups}
+        return empty_set if user is None else {group.name for group in user.groups}
 
     @lru_cache()
     def groups_for_server(server):
@@ -280,9 +277,8 @@ def get_scopes_for(orm_object):
       or
       intersection (set) if orm_object == orm.APIToken
     """
-    expanded_scopes = set()
     if orm_object is None:
-        return expanded_scopes
+        return set()
 
     if not isinstance(orm_object, orm.Base):
         from .user import User
@@ -294,55 +290,45 @@ def get_scopes_for(orm_object):
                 f"Only allow orm objects or User wrappers, got {orm_object}"
             )
 
-    if isinstance(orm_object, orm.APIToken):
-        app_log.warning(f"Authenticated with token {orm_object}")
-        owner = orm_object.user or orm_object.service
-        token_scopes = roles.expand_roles_to_scopes(orm_object)
-        if orm_object.client_id != "jupyterhub":
-            # oauth tokens can be used to access the service issuing the token,
-            # assuming the owner itself still has permission to do so
-            spawner = orm_object.oauth_client.spawner
-            if spawner:
-                token_scopes.add(
-                    f"access:servers!server={spawner.user.name}/{spawner.name}"
-                )
-            else:
-                service = orm_object.oauth_client.service
-                if service:
-                    token_scopes.add(f"access:services!service={service.name}")
-                else:
-                    app_log.warning(
-                        f"Token {orm_object} has no associated service or spawner!"
-                    )
-
-        owner_scopes = roles.expand_roles_to_scopes(owner)
-
-        if token_scopes == {'inherit'}:
-            # token_scopes is only 'inherit', return scopes inherited from owner as-is
-            # short-circuit common case where we don't need to compute an intersection
-            return owner_scopes
-
-        if 'inherit' in token_scopes:
-            token_scopes.remove('inherit')
-            token_scopes |= owner_scopes
-
-        intersection = _intersect_expanded_scopes(
-            token_scopes,
-            owner_scopes,
-            db=sa.inspect(orm_object).session,
-        )
-        discarded_token_scopes = token_scopes - intersection
-
-        # Not taking symmetric difference here because token owner can naturally have more scopes than token
-        if discarded_token_scopes:
-            app_log.warning(
-                "discarding scopes [%s], not present in owner roles"
-                % ", ".join(discarded_token_scopes)
+    if not isinstance(orm_object, orm.APIToken):
+        return roles.expand_roles_to_scopes(orm_object)
+    app_log.warning(f"Authenticated with token {orm_object}")
+    owner = orm_object.user or orm_object.service
+    token_scopes = roles.expand_roles_to_scopes(orm_object)
+    if orm_object.client_id != "jupyterhub":
+        if spawner := orm_object.oauth_client.spawner:
+            token_scopes.add(
+                f"access:servers!server={spawner.user.name}/{spawner.name}"
             )
-        expanded_scopes = intersection
-    else:
-        expanded_scopes = roles.expand_roles_to_scopes(orm_object)
-    return expanded_scopes
+        elif service := orm_object.oauth_client.service:
+            token_scopes.add(f"access:services!service={service.name}")
+        else:
+            app_log.warning(
+                f"Token {orm_object} has no associated service or spawner!"
+            )
+
+    owner_scopes = roles.expand_roles_to_scopes(owner)
+
+    if token_scopes == {'inherit'}:
+        # token_scopes is only 'inherit', return scopes inherited from owner as-is
+        # short-circuit common case where we don't need to compute an intersection
+        return owner_scopes
+
+    if 'inherit' in token_scopes:
+        token_scopes.remove('inherit')
+        token_scopes |= owner_scopes
+
+    intersection = _intersect_expanded_scopes(
+        token_scopes,
+        owner_scopes,
+        db=sa.inspect(orm_object).session,
+    )
+    if discarded_token_scopes := token_scopes - intersection:
+        app_log.warning(
+            f'discarding scopes [{", ".join(discarded_token_scopes)}], not present in owner roles'
+        )
+
+    return intersection
 
 
 def _needs_scope_expansion(filter_, filter_value, sub_scope):
@@ -351,12 +337,9 @@ def _needs_scope_expansion(filter_, filter_value, sub_scope):
     Assumptions:
     filter_ != Scope.ALL
     """
-    if not (filter_ == 'user' and 'group' in sub_scope):
+    if filter_ != 'user' or 'group' not in sub_scope:
         return False
-    if 'user' in sub_scope:
-        return filter_value not in sub_scope['user']
-    else:
-        return True
+    return filter_value not in sub_scope['user'] if 'user' in sub_scope else True
 
 
 def _check_user_in_expanded_scope(handler, user_name, scope_group_names):
@@ -378,7 +361,7 @@ def _check_scope_access(api_handler, req_scope, **kwargs):
     except AttributeError:
         api_name = type(api_handler).__name__
     if 'user' in kwargs and 'server' in kwargs:
-        kwargs['server'] = "{}/{}".format(kwargs['user'], kwargs['server'])
+        kwargs['server'] = f"{kwargs['user']}/{kwargs['server']}"
     if req_scope not in api_handler.parsed_scopes:
         app_log.debug("No access to %s via %s", api_name, req_scope)
         return False
@@ -404,8 +387,9 @@ def _check_scope_access(api_handler, req_scope, **kwargs):
                 app_log.debug("Restricted client access supported with group expansion")
                 return True
     app_log.debug(
-        "Client access refused; filters do not match API endpoint %s request" % api_name
+        f"Client access refused; filters do not match API endpoint {api_name} request"
     )
+
     raise web.HTTPError(404, "No access to resources or resources not found")
 
 
@@ -480,7 +464,7 @@ def needs_scope(*scopes):
 
             s_kwargs = {}
             for resource in {'user', 'server', 'group', 'service'}:
-                resource_name = resource + '_name'
+                resource_name = f'{resource}_name'
                 if resource_name in bound_sig.arguments:
                     resource_value = bound_sig.arguments[resource_name]
                     s_kwargs[resource] = resource_value
@@ -615,7 +599,7 @@ def describe_raw_scopes(raw_scopes, username=None):
                 filter_text = "only you"
             else:
                 kind_text = kind
-                if kind == 'group':
+                if kind_text == 'group':
                     kind_text = "users in group"
                 filter_text = f"{kind_text} {name}"
         descriptions.append(

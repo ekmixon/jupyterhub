@@ -66,15 +66,14 @@ async def test_default_server(app, named_servers):
                     'url': user.url,
                     'pending': None,
                     'ready': True,
-                    'progress_url': 'PREFIX/hub/api/users/{}/server/progress'.format(
-                        username
-                    ),
+                    'progress_url': f'PREFIX/hub/api/users/{username}/server/progress',
                     'state': {'pid': 0},
                     'user_options': {},
                 }
             },
         }
     )
+
 
     # now stop the server
     r = await api_request(app, 'users', username, 'server', method='delete')
@@ -127,9 +126,7 @@ async def test_create_named_server(app, named_servers):
                     'url': url_path_join(user.url, name, '/'),
                     'pending': None,
                     'ready': True,
-                    'progress_url': 'PREFIX/hub/api/users/{}/servers/{}/progress'.format(
-                        username, servername
-                    ),
+                    'progress_url': f'PREFIX/hub/api/users/{username}/servers/{servername}/progress',
                     'state': {'pid': 0},
                     'user_options': {},
                 }

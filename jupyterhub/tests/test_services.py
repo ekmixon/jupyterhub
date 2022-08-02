@@ -67,7 +67,7 @@ async def test_proxy_service(app, mockservice_url):
     service = mockservice_url
     name = service.name
     await app.proxy.get_all_routes()
-    url = public_url(app, service) + '/foo'
+    url = f'{public_url(app, service)}/foo'
     r = await async_requests.get(url, allow_redirects=False)
     path = f'/services/{name}/foo'
     r.raise_for_status()
@@ -100,7 +100,7 @@ async def test_external_service(app):
         assert service.oauth_client.allowed_roles == [orm.Role.find(app.db, "user")]
         api_token = service.orm.api_tokens[0]
         update_roles(app.db, api_token, roles=['token'])
-        url = public_url(app, service) + '/api/users'
+        url = f'{public_url(app, service)}/api/users'
         r = await async_requests.get(url, allow_redirects=False)
         r.raise_for_status()
         assert r.status_code == 200

@@ -96,10 +96,7 @@ class Spawner(LoggingConfigurable):
 
         Used in logging for consistency with named servers.
         """
-        if self.name:
-            return f'{self.user.name}:{self.name}'
-        else:
-            return self.user.name
+        return f'{self.user.name}:{self.name}' if self.name else self.user.name
 
     @property
     def _failed(self):
@@ -131,11 +128,7 @@ class Spawner(LoggingConfigurable):
 
         A server is not ready if an event is pending.
         """
-        if self.pending:
-            return False
-        if self.server is None:
-            return False
-        return True
+        return False if self.pending else self.server is not None
 
     @property
     def active(self):
@@ -164,17 +157,13 @@ class Spawner(LoggingConfigurable):
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__()
 
-        missing = []
-        for attr in ('start', 'stop', 'poll'):
-            if getattr(Spawner, attr) is getattr(cls, attr):
-                missing.append(attr)
-
-        if missing:
+        if missing := [
+            attr
+            for attr in ('start', 'stop', 'poll')
+            if getattr(Spawner, attr) is getattr(cls, attr)
+        ]:
             raise NotImplementedError(
-                "class `{}` needs to redefine the `start`,"
-                "`stop` and `poll` methods. `{}` not redefined.".format(
-                    cls.__name__, '`, `'.join(missing)
-                )
+                f"class `{cls.__name__}` needs to redefine the `start`,`stop` and `poll` methods. `{'`, `'.join(missing)}` not redefined."
             )
 
     proxy_spec = Unicode()
@@ -198,16 +187,11 @@ class Spawner(LoggingConfigurable):
                 # delete the old value
                 db = inspect(self.orm_spawner.server).session
                 db.delete(self.orm_spawner.server)
-            if server is None:
-                self.orm_spawner.server = None
-            else:
-                self.orm_spawner.server = server.orm_server
+            self.orm_spawner.server = None if server is None else server.orm_server
 
     @property
     def name(self):
-        if self.orm_spawner:
-            return self.orm_spawner.name
-        return ''
+        return self.orm_spawner.name if self.orm_spawner else ''
 
     internal_ssl = Bool(False)
     internal_trust_bundles = Dict()
@@ -765,8 +749,7 @@ class Spawner(LoggingConfigurable):
         state: dict
             a JSONable dict of state
         """
-        state = {}
-        return state
+        return {}
 
     def clear_state(self):
         """Clear any state that should be cleared when the single-user server stops.

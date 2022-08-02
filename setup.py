@@ -45,12 +45,12 @@ is_repo = os.path.exists(pjoin(here, '.git'))
 def get_data_files():
     """Get data files in share/jupyter"""
 
-    data_files = []
     ntrim = len(here + os.path.sep)
 
-    for (d, dirs, filenames) in os.walk(share_jupyterhub):
-        data_files.append((d[ntrim:], [pjoin(d, f) for f in filenames]))
-    return data_files
+    return [
+        (d[ntrim:], [pjoin(d, f) for f in filenames])
+        for d, dirs, filenames in os.walk(share_jupyterhub)
+    ]
 
 
 def get_package_data():
@@ -58,9 +58,7 @@ def get_package_data():
 
     (mostly alembic config)
     """
-    package_data = {}
-    package_data['jupyterhub'] = ['alembic.ini', 'alembic/*', 'alembic/versions/*']
-    return package_data
+    return {'jupyterhub': ['alembic.ini', 'alembic/*', 'alembic/versions/*']}
 
 
 ns = {}
@@ -68,10 +66,11 @@ with open(pjoin(here, 'jupyterhub', '_version.py')) as f:
     exec(f.read(), {}, ns)
 
 
-packages = []
-for d, _, _ in os.walk('jupyterhub'):
-    if os.path.exists(pjoin(d, '__init__.py')):
-        packages.append(d.replace(os.path.sep, '.'))
+packages = [
+    d.replace(os.path.sep, '.')
+    for d, _, _ in os.walk('jupyterhub')
+    if os.path.exists(pjoin(d, '__init__.py'))
+]
 
 with open('README.md', encoding="utf8") as f:
     readme = f.read()
@@ -201,7 +200,7 @@ class CSS(BaseCommand):
         # from IPython.html.tasks.py
 
         css_targets = [pjoin(static, 'css', 'style.min.css')]
-        css_maps = [t + '.map' for t in css_targets]
+        css_maps = [f'{t}.map' for t in css_targets]
         targets = css_targets + css_maps
         if not all(os.path.exists(t) for t in targets):
             # some generated files don't exist
@@ -229,7 +228,7 @@ class CSS(BaseCommand):
 
         style_less = pjoin(static, 'less', 'style.less')
         style_css = pjoin(static, 'css', 'style.min.css')
-        sourcemap = style_css + '.map'
+        sourcemap = f'{style_css}.map'
 
         args = [
             'npm',
@@ -246,7 +245,7 @@ class CSS(BaseCommand):
         try:
             check_call(args, cwd=here, shell=shell)
         except OSError as e:
-            print("Failed to run lessc: %s" % e, file=sys.stderr)
+            print(f"Failed to run lessc: {e}", file=sys.stderr)
             print("You can install js dependencies with `npm install`", file=sys.stderr)
             raise
         # update data-files in case this created new files
@@ -254,6 +253,9 @@ class CSS(BaseCommand):
 
 
 def js_css_first(cls, strict=True):
+
+
+
     class Command(cls):
         def run(self):
             try:
@@ -262,9 +264,8 @@ def js_css_first(cls, strict=True):
             except Exception:
                 if strict:
                     raise
-                else:
-                    pass
             return super().run()
+
 
     return Command
 
@@ -309,7 +310,7 @@ setup_args['cmdclass']['develop'] = develop_js_css
 setup_args['install_requires'] = install_requires = []
 
 with open('requirements.txt') as f:
-    for line in f.readlines():
+    for line in f:
         req = line.strip()
         if not req or req.startswith('#') or '://' in req:
             continue

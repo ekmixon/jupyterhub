@@ -198,7 +198,7 @@ class BaseHandler(RequestHandler):
         Can be overridden by defining Content-Security-Policy in settings['headers']
         """
         return '; '.join(
-            ["frame-ancestors 'self'", "report-uri " + self.csp_report_uri]
+            ["frame-ancestors 'self'", f"report-uri {self.csp_report_uri}"]
         )
 
     def get_content_type(self):
@@ -250,9 +250,7 @@ class BaseHandler(RequestHandler):
         """Get the authorization token from Authorization header"""
         auth_header = self.request.headers.get('Authorization', '')
         match = auth_header_pat.match(auth_header)
-        if not match:
-            return None
-        return match.group(1)
+        return match.group(1) if match else None
 
     def _record_activity(self, obj, timestamp=None):
         """record activity on an ORM object
@@ -343,10 +341,7 @@ class BaseHandler(RequestHandler):
     def get_token(self):
         """get token from authorization header"""
         token = self.get_auth_token()
-        if token is None:
-            return None
-        orm_token = orm.APIToken.find(self.db, token)
-        return orm_token
+        return None if token is None else orm.APIToken.find(self.db, token)
 
     def get_current_user_token(self):
         """get_current_user from Authorization header token"""
@@ -356,19 +351,14 @@ class BaseHandler(RequestHandler):
             return None
         now = datetime.utcnow()
         recorded = self._record_activity(orm_token, now)
-        if orm_token.user:
-            # FIXME: scopes should give us better control than this
-            # don't consider API requests originating from a server
-            # to be activity from the user
-            if not orm_token.note or not orm_token.note.startswith("Server at "):
-                recorded = self._record_activity(orm_token.user, now) or recorded
+        if orm_token.user and (
+            not orm_token.note or not orm_token.note.startswith("Server at ")
+        ):
+            recorded = self._record_activity(orm_token.user, now) or recorded
         if recorded:
             self.db.commit()
 
-        if orm_token.service:
-            return orm_token.service
-
-        return self._user_from_orm(orm_token.user)
+        return orm_token.service or self._user_from_orm(orm_token.user)
 
     def _user_for_cookie(self, cookie_name, cookie_value=None):
         """Get the User for a given cookie, if there is one"""
@@ -427,8 +417,7 @@ class BaseHandler(RequestHandler):
     def _resolve_roles_and_scopes(self):
         self.expanded_scopes = set()
         if self.current_user:
-            orm_token = self.get_token()
-            if orm_token:
+            if orm_token := self.get_token():
                 self.expanded_scopes = scopes.get_scopes_for(orm_token)
             else:
                 self.expanded_scopes = scopes.get_scopes_for(self.current_user)
@@ -488,8 +477,7 @@ class BaseHandler(RequestHandler):
         if self.subdomain_host:
             kwargs['domain'] = self.domain
         user = self.get_current_user_cookie()
-        session_id = self.get_session_cookie()
-        if session_id:
+        if session_id := self.get_session_cookie():
             # clear session id
             self.clear_cookie(SESSION_COOKIE_NAME, path=self.base_url, **kwargs)
 
@@ -537,14 +525,10 @@ class BaseHandler(RequestHandler):
         if self.subdomain_host:
             kwargs['domain'] = self.domain
 
-        kwargs.update(self.settings.get('cookie_options', {}))
+        kwargs |= self.settings.get('cookie_options', {})
         kwargs.update(overrides)
 
-        if encrypted:
-            set_cookie = self.set_secure_cookie
-        else:
-            set_cookie = self.set_cookie
-
+        set_cookie = self.set_secure_cookie if encrypted else self.set_cookie
         self.log.debug("Setting cookie %s: %s", key, kwargs)
         set_cookie(key, value, **kwargs)
 
@@ -623,16 +607,17 @@ class BaseHandler(RequestHandler):
         next_url = self.get_argument('next', default='')
         # protect against some browsers' buggy handling of backslash as slash
         next_url = next_url.replace('\\', '%5C')
-        if (next_url + '/').startswith(
-            (
-                f'{self.request.protocol}://{self.request.host}/',
-                f'//{self.request.host}/',
+        if (
+            f'{next_url}/'.startswith(
+                (
+                    f'{self.request.protocol}://{self.request.host}/',
+                    f'//{self.request.host}/',
+                )
             )
-        ) or (
-            self.subdomain_host
+            or self.subdomain_host
             and urlparse(next_url).netloc
-            and ("." + urlparse(next_url).netloc).endswith(
-                "." + urlparse(self.subdomain_host).netloc
+            and f".{urlparse(next_url).netloc}".endswith(
+                f".{urlparse(self.subdomain_host).netloc}"
             )
         ):
             # treat absolute URLs for our host as absolute paths:
@@ -640,9 +625,9 @@ class BaseHandler(RequestHandler):
             parsed = urlparse(next_url)
             next_url = parsed.path
             if parsed.query:
-                next_url = next_url + '?' + parsed.query
+                next_url = f'{next_url}?{parsed.query}'
             if parsed.fragment:
-                next_url = next_url + '#' + parsed.fragment
+                next_url = f'{next_url}#{parsed.fragment}'
 
         # if it still has host info, it didn't match our above check for *this* host
         if next_url and (
@@ -666,21 +651,15 @@ class BaseHandler(RequestHandler):
             )
 
         # this is where we know if next_url is coming from ?next= param or we are using a default url
-        if next_url:
-            next_url_from_param = True
-        else:
-            next_url_from_param = False
-
+        next_url_from_param = bool(next_url)
         if not next_url:
             # custom default URL, usually passed because user landed on that page but was not logged in
             if default:
                 next_url = default
+            elif callable(self.default_url):
+                next_url = self.default_url(self)
             else:
-                # As set in jupyterhub_config.py
-                if callable(self.default_url):
-                    next_url = self.default_url(self)
-                else:
-                    next_url = self.default_url
+                next_url = self.default_url
 
         if not next_url:
             # default URL after login
@@ -725,12 +704,11 @@ class BaseHandler(RequestHandler):
         if exclude is None:
             exclude = ['next']
         if self.request.query:
-            query_string = [
+            if query_string := [
                 param
                 for param in parse_qsl(self.request.query)
                 if param[0] not in exclude
-            ]
-            if query_string:
+            ]:
                 url = url_concat(url, query_string)
         return url
 
@@ -1055,9 +1033,9 @@ class BaseHandler(RequestHandler):
 
                 raise web.HTTPError(
                     500,
-                    "Spawner failed to start [status=%s]. The logs for %s may contain details."
-                    % (status, spawner._log_name),
+                    f"Spawner failed to start [status={status}]. The logs for {spawner._log_name} may contain details.",
                 )
+
 
             if spawner._waiting_for_response:
                 # hit timeout waiting for response, but server's running.
@@ -1207,10 +1185,7 @@ class BaseHandler(RequestHandler):
 
         If sync is False, we return a Template that is compiled with async support
         """
-        if sync:
-            key = 'jinja2_env_sync'
-        else:
-            key = 'jinja2_env'
+        key = 'jinja2_env_sync' if sync else 'jinja2_env'
         return self.settings[key].get_template(name)
 
     def render_template(self, name, sync=False, **ns):
@@ -1221,7 +1196,7 @@ class BaseHandler(RequestHandler):
         If sync is set to False, we return an awaitable
         """
         template_ns = {}
-        template_ns.update(self.template_namespace)
+        template_ns |= self.template_namespace
         template_ns.update(ns)
         template = self.get_template(name, sync)
         if sync:
@@ -1246,7 +1221,7 @@ class BaseHandler(RequestHandler):
             expanded_scopes=self.expanded_scopes,
         )
         if self.settings['template_vars']:
-            ns.update(self.settings['template_vars'])
+            ns |= self.settings['template_vars']
         return ns
 
     def get_accessible_services(self, user):
@@ -1275,9 +1250,7 @@ class BaseHandler(RequestHandler):
             except Exception:
                 pass
 
-            # construct the custom reason, if defined
-            reason = getattr(exception, 'reason', '')
-            if reason:
+            if reason := getattr(exception, 'reason', ''):
                 message = reasons.get(reason, reason)
 
         if exception and isinstance(exception, SQLAlchemyError):
@@ -1295,10 +1268,7 @@ class BaseHandler(RequestHandler):
 
         self.set_header('Content-Type', 'text/html')
         if isinstance(exception, web.HTTPError):
-            # allow setting headers from exceptions
-            # since exception handler clears headers
-            headers = getattr(exception, 'headers', None)
-            if headers:
+            if headers := getattr(exception, 'headers', None):
                 for key, value in headers.items():
                     self.set_header(key, value)
             # Content-Length must be recalculated.
@@ -1308,7 +1278,7 @@ class BaseHandler(RequestHandler):
         # so we run it sync here, instead of making a sync version of render_template
 
         try:
-            html = self.render_template('%s.html' % status_code, sync=True, **ns)
+            html = self.render_template(f'{status_code}.html', sync=True, **ns)
         except TemplateNotFound:
             self.log.debug("No template for %d", status_code)
             try:
@@ -1382,9 +1352,7 @@ class UserUrlHandler(BaseHandler):
         # that the *server* itself is not running, rather than just the particular
         # resource *in* the server is not found, we return a 424 instead of a 404.
         # We allow retaining the old behavior to support older JupyterLab versions
-        self.set_status(
-            424 if not self.app.use_legacy_stopped_server_status_code else 503
-        )
+        self.set_status(503 if self.app.use_legacy_stopped_server_status_code else 424)
         self.set_header("Content-Type", "application/json")
 
         spawn_url = urlparse(self.request.full_url())._replace(query="")
@@ -1397,13 +1365,11 @@ class UserUrlHandler(BaseHandler):
         self.write(
             json.dumps(
                 {
-                    "message": (
-                        "JupyterHub server no longer running at {}."
-                        " Restart the server at {}"
-                    ).format(self.request.path[len(self.hub.base_url) - 1 :], spawn_url)
+                    "message": f"JupyterHub server no longer running at {self.request.path[len(self.hub.base_url) - 1 :]}. Restart the server at {spawn_url}"
                 }
             )
         )
+
         self.finish()
 
     # fail all non-GET requests with JSON
@@ -1451,7 +1417,7 @@ class UserUrlHandler(BaseHandler):
             user = self.find_user(user_name)
             if user is None:
                 # no such user
-                raise web.HTTPError(404, "No such user %s" % user_name)
+                raise web.HTTPError(404, f"No such user {user_name}")
             self.log.info(
                 "Admin %s requesting spawn on behalf of %s",
                 current_user.name,
@@ -1557,9 +1523,7 @@ class UserUrlHandler(BaseHandler):
             url_path_join(self.hub.base_url, "spawn", user.escaped_name, server_name),
             {"next": self.request.uri},
         )
-        self.set_status(
-            424 if not self.app.use_legacy_stopped_server_status_code else 503
-        )
+        self.set_status(503 if self.app.use_legacy_stopped_server_status_code else 424)
 
         auth_state = await user.get_auth_state()
         html = await self.render_template(

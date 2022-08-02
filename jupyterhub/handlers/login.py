@@ -24,16 +24,17 @@ class LogoutHandler(BaseHandler):
 
         Get all active servers for the provided user, stop them.
         """
-        active_servers = [
+        if active_servers := [
             name
             for (name, spawner) in user.spawners.items()
             if spawner.active and not spawner.pending
-        ]
-        if active_servers:
+        ]:
             self.log.info("Shutting down %s's servers", user.name)
-            futures = []
-            for server_name in active_servers:
-                futures.append(maybe_future(self.stop_single_user(user, server_name)))
+            futures = [
+                maybe_future(self.stop_single_user(user, server_name))
+                for server_name in active_servers
+            ]
+
             await asyncio.gather(*futures)
 
     def _backend_logout_cleanup(self, name):
@@ -52,8 +53,7 @@ class LogoutHandler(BaseHandler):
         Cleaning up servers can be prevented by setting shutdown_on_logout to
         False.
         """
-        user = self.current_user
-        if user:
+        if user := self.current_user:
             if self.shutdown_on_logout:
                 await self._shutdown_servers(user)
 
@@ -112,8 +112,7 @@ class LoginHandler(BaseHandler):
 
     async def get(self):
         self.statsd.incr('login.request')
-        user = self.current_user
-        if user:
+        if user := self.current_user:
             # set new login cookie
             # because single-user cookie may have been cleared or incorrect
             self.set_login_cookie(user)
@@ -143,9 +142,10 @@ class LoginHandler(BaseHandler):
 
     async def post(self):
         # parse the arguments dict
-        data = {}
-        for arg in self.request.arguments:
-            data[arg] = self.get_argument(arg, strip=False)
+        data = {
+            arg: self.get_argument(arg, strip=False)
+            for arg in self.request.arguments
+        }
 
         auth_timer = self.statsd.timer('login.authenticate').start()
         user = await self.login_user(data)

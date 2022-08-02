@@ -180,10 +180,7 @@ class Proxy(LoggingConfigurable):
                 "Cannot add route without host %r, using host-routing" % routespec
             )
         # add trailing slash
-        if not routespec.endswith('/'):
-            return routespec + '/'
-        else:
-            return routespec
+        return routespec if routespec.endswith('/') else f'{routespec}/'
 
     async def add_route(self, routespec, target, data):
         """Add a route to the proxy.
@@ -315,10 +312,12 @@ class Proxy(LoggingConfigurable):
 
         Used when loading up a new proxy.
         """
-        futures = []
-        for service in service_dict.values():
-            if service.server:
-                futures.append(self.add_service(service))
+        futures = [
+            self.add_service(service)
+            for service in service_dict.values()
+            if service.server
+        ]
+
         # wait after submitting them all
         await asyncio.gather(*futures)
 
@@ -329,9 +328,12 @@ class Proxy(LoggingConfigurable):
         """
         futures = []
         for user in user_dict.values():
-            for name, spawner in user.spawners.items():
-                if spawner.ready:
-                    futures.append(self.add_user(user, name))
+            futures.extend(
+                self.add_user(user, name)
+                for name, spawner in user.spawners.items()
+                if spawner.ready
+            )
+
         # wait after submitting them all
         await asyncio.gather(*futures)
 
@@ -504,10 +506,7 @@ class ConfigurableHTTPProxy(Proxy):
     @default('api_url')
     def _api_url_default(self):
         url = '127.0.0.1:8001'
-        proto = 'http'
-        if self.app.internal_ssl:
-            proto = 'https'
-
+        proto = 'https' if self.app.internal_ssl else 'http'
         return f"{proto}://{url}"
 
     command = Command(
@@ -537,8 +536,8 @@ class ConfigurableHTTPProxy(Proxy):
                 process = psutil.Process(pid)
                 if self.command and self.command[0]:
                     process_cmd = process.cmdline()
-                    if process_cmd and not any(
-                        self.command[0] in clause for clause in process_cmd
+                    if process_cmd and all(
+                        self.command[0] not in clause for clause in process_cmd
                     ):
                         raise ProcessLookupError
             except (psutil.AccessDenied, psutil.NoSuchProcess):
@@ -620,35 +619,39 @@ class ConfigurableHTTPProxy(Proxy):
             os.remove(self.pid_file)
         except FileNotFoundError:
             self.log.debug("PID file %s already removed", self.pid_file)
-            pass
 
     def _get_ssl_options(self):
         """List of cmd proxy options to use internal SSL"""
-        cmd = []
         proxy_api = 'proxy-api'
         proxy_client = 'proxy-client'
         api_key = self.app.internal_proxy_certs[proxy_api][
             'keyfile'
         ]  # Check content in next test and just patch manulaly or in the config of the file
         api_cert = self.app.internal_proxy_certs[proxy_api]['certfile']
-        api_ca = self.app.internal_trust_bundles[proxy_api + '-ca']
+        api_ca = self.app.internal_trust_bundles[f'{proxy_api}-ca']
 
         client_key = self.app.internal_proxy_certs[proxy_client]['keyfile']
         client_cert = self.app.internal_proxy_certs[proxy_client]['certfile']
-        client_ca = self.app.internal_trust_bundles[proxy_client + '-ca']
+        client_ca = self.app.internal_trust_bundles[f'{proxy_client}-ca']
 
-        cmd.extend(['--api-ssl-key', api_key])
-        cmd.extend(['--api-ssl-cert', api_cert])
-        cmd.extend(['--api-ssl-ca', api_ca])
-        cmd.extend(['--api-ssl-request-cert'])
-        cmd.extend(['--api-ssl-reject-unauthorized'])
-
-        cmd.extend(['--client-ssl-key', client_key])
-        cmd.extend(['--client-ssl-cert', client_cert])
-        cmd.extend(['--client-ssl-ca', client_ca])
-        cmd.extend(['--client-ssl-request-cert'])
-        cmd.extend(['--client-ssl-reject-unauthorized'])
-        return cmd
+        return [
+            '--api-ssl-key',
+            api_key,
+            '--api-ssl-cert',
+            api_cert,
+            '--api-ssl-ca',
+            api_ca,
+            '--api-ssl-request-cert',
+            '--api-ssl-reject-unauthorized',
+            '--client-ssl-key',
+            client_key,
+            '--client-ssl-cert',
+            client_cert,
+            '--client-ssl-ca',
+            client_ca,
+            '--client-ssl-request-cert',
+            '--client-ssl-reject-unauthorized',
+        ]
 
     async def start(self):
         """Start the proxy process"""
@@ -788,7 +791,7 @@ class ConfigurableHTTPProxy(Proxy):
         path = self.validate_routespec(routespec)
         # CHP always wants to start with /
         if not path.startswith('/'):
-            path = '/' + path
+            path = f'/{path}'
         # BUG: CHP doesn't seem to like trailing slashes on some endpoints (DELETE)
         if path != '/' and path.endswith('/'):
             path = path.rstrip('/')
@@ -808,7 +811,7 @@ class ConfigurableHTTPProxy(Proxy):
             routespec = routespec.lstrip('/')
         # all routes should end with /
         if not routespec.endswith('/'):
-            routespec = routespec + '/'
+            routespec = f'{routespec}/'
         return routespec
 
     async def api_request(self, path, method='GET', body=None, client=None):

@@ -70,16 +70,18 @@ async def test_hubauth_token(app, mockservice_url, create_user_with_scopes):
 
     # token without sufficient permission in Authorization header
     r = await async_requests.get(
-        public_url(app, mockservice_url) + '/whoami/',
+        f'{public_url(app, mockservice_url)}/whoami/',
         headers={'Authorization': f'token {no_access_token}'},
     )
+
     assert r.status_code == 403
 
     # token in Authorization header
     r = await async_requests.get(
-        public_url(app, mockservice_url) + '/whoami/',
+        f'{public_url(app, mockservice_url)}/whoami/',
         headers={'Authorization': f'token {token}'},
     )
+
     r.raise_for_status()
     reply = r.json()
     sub_reply = {key: reply.get(key, 'missing') for key in ['name', 'admin']}
@@ -87,17 +89,19 @@ async def test_hubauth_token(app, mockservice_url, create_user_with_scopes):
 
     # token in ?token parameter
     r = await async_requests.get(
-        public_url(app, mockservice_url) + '/whoami/?token=%s' % token
+        public_url(app, mockservice_url) + f'/whoami/?token={token}'
     )
+
     r.raise_for_status()
     reply = r.json()
     sub_reply = {key: reply.get(key, 'missing') for key in ['name', 'admin']}
     assert sub_reply == {'name': u.name, 'admin': False}
 
     r = await async_requests.get(
-        public_url(app, mockservice_url) + '/whoami/?token=no-such-token',
+        f'{public_url(app, mockservice_url)}/whoami/?token=no-such-token',
         allow_redirects=False,
     )
+
     assert r.status_code == 302
     assert 'Location' in r.headers
     location = r.headers['Location']
@@ -160,10 +164,11 @@ async def test_hubauth_service_token(request, app, mockservice_url, scopes, allo
 
     # token in Authorization header
     r = await async_requests.get(
-        public_url(app, mockservice_url) + 'whoami/',
-        headers={'Authorization': 'token %s' % token},
+        f'{public_url(app, mockservice_url)}whoami/',
+        headers={'Authorization': f'token {token}'},
         allow_redirects=False,
     )
+
     service_model = {
         'kind': 'service',
         'name': name,
@@ -181,8 +186,9 @@ async def test_hubauth_service_token(request, app, mockservice_url, scopes, allo
 
     # token in ?token parameter
     r = await async_requests.get(
-        public_url(app, mockservice_url) + 'whoami/?token=%s' % token
+        public_url(app, mockservice_url) + f'whoami/?token={token}'
     )
+
     if allowed:
         r.raise_for_status()
         assert r.status_code == 200
@@ -193,9 +199,10 @@ async def test_hubauth_service_token(request, app, mockservice_url, scopes, allo
         assert r.status_code == 403
 
     r = await async_requests.get(
-        public_url(app, mockservice_url) + 'whoami/?token=no-such-token',
+        f'{public_url(app, mockservice_url)}whoami/?token=no-such-token',
         allow_redirects=False,
     )
+
     assert r.status_code == 302
     assert 'Location' in r.headers
     location = r.headers['Location']
@@ -246,7 +253,7 @@ async def test_oauth_service_roles(
         orm.Role.find(app.db, role_name) for role_name in client_allowed_roles
     ]
     app.db.commit()
-    url = url_path_join(public_url(app, mockservice_url) + 'owhoami/?arg=x')
+    url = url_path_join(f'{public_url(app, mockservice_url)}owhoami/?arg=x')
     # first request is only going to login and get us to the oauth form page
     s = AsyncSession()
     user = create_user_with_scopes("access:services")
@@ -257,9 +264,12 @@ async def test_oauth_service_roles(
     r = await s.get(url)
     r.raise_for_status()
     # we should be looking at the oauth confirmation page
-    assert urlparse(r.url).path == app.base_url + 'hub/api/oauth2/authorize'
+    assert urlparse(r.url).path == f'{app.base_url}hub/api/oauth2/authorize'
     # verify oauth state cookie was set at some point
-    assert set(r.history[0].cookies.keys()) == {'service-%s-oauth-state' % service.name}
+    assert set(r.history[0].cookies.keys()) == {
+        f'service-{service.name}-oauth-state'
+    }
+
 
     # submit the oauth form to complete authorization
     data = {}
@@ -270,16 +280,16 @@ async def test_oauth_service_roles(
         # expected failed auth, stop here
         # verify expected 'invalid scope' error, not server error
         dest_url, _, query = r.url.partition("?")
-        assert dest_url == public_url(app, mockservice_url) + "oauth_callback"
+        assert dest_url == f"{public_url(app, mockservice_url)}oauth_callback"
         assert parse_qs(query).get("error") == ["invalid_scope"]
         assert r.status_code == 400
         return
     r.raise_for_status()
     assert r.url == url
     # verify oauth cookie is set
-    assert 'service-%s' % service.name in set(s.cookies.keys())
+    assert f'service-{service.name}' in set(s.cookies.keys())
     # verify oauth state cookie has been consumed
-    assert 'service-%s-oauth-state' % service.name not in set(s.cookies.keys())
+    assert f'service-{service.name}-oauth-state' not in set(s.cookies.keys())
 
     # second request should be authenticated, which means no redirects
     r = await s.get(url, allow_redirects=False)
@@ -327,7 +337,7 @@ async def test_oauth_access_scopes(
     """Check that oauth/authorize validates access scopes"""
     service = mockservice_url
     access_scopes = [s.replace("$service", service.name) for s in access_scopes]
-    url = url_path_join(public_url(app, mockservice_url) + 'owhoami/?arg=x')
+    url = url_path_join(f'{public_url(app, mockservice_url)}owhoami/?arg=x')
     # first request is only going to login and get us to the oauth form page
     s = AsyncSession()
     user = create_user_with_scopes(*access_scopes)
@@ -340,18 +350,21 @@ async def test_oauth_access_scopes(
         return
     r.raise_for_status()
     # we should be looking at the oauth confirmation page
-    assert urlparse(r.url).path == app.base_url + 'hub/api/oauth2/authorize'
+    assert urlparse(r.url).path == f'{app.base_url}hub/api/oauth2/authorize'
     # verify oauth state cookie was set at some point
-    assert set(r.history[0].cookies.keys()) == {'service-%s-oauth-state' % service.name}
+    assert set(r.history[0].cookies.keys()) == {
+        f'service-{service.name}-oauth-state'
+    }
+
 
     # submit the oauth form to complete authorization
     r = await s.post(r.url, headers={'Referer': r.url})
     r.raise_for_status()
     assert r.url == url
     # verify oauth cookie is set
-    assert 'service-%s' % service.name in set(s.cookies.keys())
+    assert f'service-{service.name}' in set(s.cookies.keys())
     # verify oauth state cookie has been consumed
-    assert 'service-%s-oauth-state' % service.name not in set(s.cookies.keys())
+    assert f'service-{service.name}-oauth-state' not in set(s.cookies.keys())
 
     # second request should be authenticated, which means no redirects
     r = await s.get(url, allow_redirects=False)
@@ -404,12 +417,12 @@ async def test_oauth_page_hit(
     app.db.commit()
     s = AsyncSession()
     s.cookies = await app.login_user(user.name)
-    url = url_path_join(public_url(app, service) + 'owhoami/?arg=x')
+    url = url_path_join(f'{public_url(app, service)}owhoami/?arg=x')
     r = await s.get(url)
     r.raise_for_status()
     if hits_page:
         # hit auth page to confirm permissions
-        assert urlparse(r.url).path == app.base_url + 'hub/api/oauth2/authorize'
+        assert urlparse(r.url).path == f'{app.base_url}hub/api/oauth2/authorize'
     else:
         # skip auth page, permissions are granted
         assert r.status_code == 200
@@ -424,8 +437,8 @@ async def test_oauth_cookie_collision(app, mockservice_url, create_user_with_sco
     name = 'mypha'
     user = create_user_with_scopes("access:services", name=name)
     s.cookies = await app.login_user(name)
-    state_cookie_name = 'service-%s-oauth-state' % service.name
-    service_cookie_name = 'service-%s' % service.name
+    state_cookie_name = f'service-{service.name}-oauth-state'
+    service_cookie_name = f'service-{service.name}'
     oauth_1 = await s.get(url)
     print(oauth_1.headers)
     print(oauth_1.cookies, oauth_1.url, url)
@@ -472,7 +485,7 @@ async def test_oauth_cookie_collision(app, mockservice_url, create_user_with_sco
 
     # after completing both OAuth logins, no OAuth state cookies remain
     state_cookies = [s for s in s.cookies.keys() if s.startswith(state_cookie_name)]
-    assert state_cookies == []
+    assert not state_cookies
 
 
 async def test_oauth_logout(app, mockservice_url, create_user_with_scopes):
@@ -484,7 +497,7 @@ async def test_oauth_logout(app, mockservice_url, create_user_with_scopes):
     4. cache hit
     """
     service = mockservice_url
-    service_cookie_name = 'service-%s' % service.name
+    service_cookie_name = f'service-{service.name}'
     url = url_path_join(public_url(app, mockservice_url), 'owhoami/?foo=bar')
     # first request is only going to set login cookie
     s = AsyncSession()
@@ -494,6 +507,8 @@ async def test_oauth_logout(app, mockservice_url, create_user_with_scopes):
     def auth_tokens():
         """Return list of OAuth access tokens for the user"""
         return list(app.db.query(orm.APIToken).filter_by(user_id=user.id))
+
+    # ensure we start empty
 
     # ensure we start empty
     assert auth_tokens() == []

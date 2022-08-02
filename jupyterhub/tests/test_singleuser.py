@@ -201,11 +201,7 @@ def test_singleuser_app_class(JUPYTERHUB_SINGLEUSER_APP):
         have_server = True
         expect_error = False
 
-    if expect_error:
-        ctx = pytest.raises(CalledProcessError)
-    else:
-        ctx = nullcontext()
-
+    ctx = pytest.raises(CalledProcessError) if expect_error else nullcontext()
     with mock.patch.dict(
         os.environ,
         {
